@@ -6,13 +6,13 @@
 
 #include <emmintrin.h>
 
-#include <VapourSynth.h>
-#include <VSHelper.h>
+#include <VapourSynth4.h>
+#include <VSHelper4.h>
 
 
 typedef struct SmoothUVData {
-    VSNodeRef *clip;
-    const VSVideoInfo *vi;
+    VSNode *clip;
+    VSVideoInfo vi;
 
     int radius;
     int threshold;
@@ -161,39 +161,28 @@ static void smoothN_SSE2(int radius,
 }
 
 
-static void VS_CC smoothUVInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    (void)in;
-    (void)out;
-    (void)core;
-
-    SmoothUVData *d = (SmoothUVData *) *instanceData;
-
-    vsapi->setVideoInfo(d->vi, 1, node);
-}
-
-
-static const VSFrameRef *VS_CC smoothUVGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
+static const VSFrame *VS_CC smoothUVGetFrame(int n, int activationReason, void *instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
     (void)frameData;
 
-    const SmoothUVData *d = (const SmoothUVData *) *instanceData;
+    const SmoothUVData *d = (const SmoothUVData *)instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->clip, frameCtx);
     } else if (activationReason == arAllFramesReady) {
-        const VSFrameRef *src = vsapi->getFrameFilter(n, d->clip, frameCtx);
+        const VSFrame *src = vsapi->getFrameFilter(n, d->clip, frameCtx);
 
         int width = vsapi->getFrameWidth(src, 0);
         int height = vsapi->getFrameHeight(src, 0);
 
         // Reuse the luma plane, allocate memory for the chroma planes.
-        const VSFrameRef *plane_src[3] = { src, nullptr, nullptr };
+        const VSFrame *plane_src[3] = { src, nullptr, nullptr };
         int planes[3] = { 0 };
 
-        VSFrameRef *dst = vsapi->newVideoFrame2(d->vi->format, width, height, plane_src, planes, src, core);
+        VSFrame *dst = vsapi->newVideoFrame2(&d->vi.format, width, height, plane_src, planes, src, core);
 
-        const VSMap *props = vsapi->getFramePropsRO(src);
+        const VSMap *props = vsapi->getFramePropertiesRO(src);
         int err;
-        int64_t field_based = vsapi->propGetInt(props, "_FieldBased", 0, &err);
+        int64_t field_based = vsapi->mapGetInt(props, "_FieldBased", 0, &err);
 
         bool interlaced = field_based == 1 || field_based == 2;
         if (d->interlaced_exists)
@@ -203,7 +192,7 @@ static const VSFrameRef *VS_CC smoothUVGetFrame(int n, int activationReason, voi
             const uint8_t *srcp = vsapi->getReadPtr(src, plane);
             uint8_t *dstp = vsapi->getWritePtr(dst, plane);
 
-            int stride = vsapi->getStride(src, plane);
+            ptrdiff_t stride = vsapi->getStride(src, plane);
             width = vsapi->getFrameWidth(src, plane);
             height = vsapi->getFrameHeight(src, plane);
 
@@ -239,36 +228,36 @@ static void VS_CC smoothUVCreate(const VSMap *in, VSMap *out, void *userData, VS
 
     int err;
 
-    d.radius = int64ToIntS(vsapi->propGetInt(in, "radius", 0, &err));
+    d.radius = vsapi->mapGetIntSaturated(in, "radius", 0, &err);
     if (err)
         d.radius = 3;
 
-    d.threshold = int64ToIntS(vsapi->propGetInt(in, "threshold", 0, &err));
+    d.threshold = vsapi->mapGetIntSaturated(in, "threshold", 0, &err);
     if (err)
         d.threshold = 270;
 
-    d.interlaced = !!vsapi->propGetInt(in, "interlaced", 0, &err);
+    d.interlaced = !!vsapi->mapGetInt(in, "interlaced", 0, &err);
     d.interlaced_exists = !err;
 
 
     if (d.radius < 1 || d.radius > 7) {
-        vsapi->setError(out, "SmoothUV: radius must be between 1 and 7 (inclusive).");
+        vsapi->mapSetError(out, "SmoothUV: radius must be between 1 and 7 (inclusive).");
         return;
     }
 
     if (d.threshold < 0 || d.threshold > 450) {
-        vsapi->setError(out, "SmoothUV: threshold must be between 0 and 450 (inclusive).");
+        vsapi->mapSetError(out, "SmoothUV: threshold must be between 0 and 450 (inclusive).");
         return;
     }
 
 
-    d.clip = vsapi->propGetNode(in, "clip", 0, nullptr);
-    d.vi = vsapi->getVideoInfo(d.clip);
+    d.clip = vsapi->mapGetNode(in, "clip", 0, nullptr);
+    d.vi = *vsapi->getVideoInfo(d.clip);
 
-    if (!d.vi->format ||
-        d.vi->format->bitsPerSample != 8 ||
-        d.vi->format->colorFamily != cmYUV) {
-        vsapi->setError(out, "SmoothUV: only 8 bit YUV with constant format supported.");
+    if (d.vi.format.colorFamily == cfUndefined ||
+        d.vi.format.bitsPerSample != 8 ||
+        d.vi.format.colorFamily != cfYUV) {
+        vsapi->mapSetError(out, "SmoothUV: only 8 bit YUV with constant format supported.");
         vsapi->freeNode(d.clip);
         return;
     }
@@ -281,16 +270,19 @@ static void VS_CC smoothUVCreate(const VSMap *in, VSMap *out, void *userData, VS
     SmoothUVData *data = (SmoothUVData *)malloc(sizeof(SmoothUVData));
     *data = d;
 
-    vsapi->createFilter(in, out, "SmoothUV", smoothUVInit, smoothUVGetFrame, smoothUVFree, fmParallel, 0, data, core);
+    VSFilterDependency deps[] = {{d.clip, rpStrictSpatial}};
+    vsapi->createVideoFilter(out, "SmoothUV", &data->vi, smoothUVGetFrame, smoothUVFree, fmParallel, deps, 1, data, core);
 }
 
 
-VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin) {
-    configFunc("com.nodame.smoothuv", "smoothuv", "SmoothUV is a spatial derainbow filter", VAPOURSYNTH_API_VERSION, 1, plugin);
-    registerFunc("SmoothUV",
-                 "clip:clip;"
-                 "radius:int:opt;"
-                 "threshold:int:opt;"
-                 "interlaced:int:opt;"
-                 , smoothUVCreate, 0, plugin);
+VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin *plugin, const VSPLUGINAPI *vspapi) {
+    vspapi->configPlugin("com.nodame.smoothuv", "smoothuv", "SmoothUV is a spatial derainbow filter",
+                         VS_MAKE_VERSION(1, 0), VAPOURSYNTH_API_VERSION, 0, plugin);
+    vspapi->registerFunction("SmoothUV",
+                             "clip:vnode;"
+                             "radius:int:opt;"
+                             "threshold:int:opt;"
+                             "interlaced:int:opt;",
+                             "clip:vnode;",
+                             smoothUVCreate, nullptr, plugin);
 }

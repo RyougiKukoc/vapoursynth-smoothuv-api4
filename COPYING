@@ -1,0 +1,9 @@
+GNU General Public License (GPL)
+
+This repository's existing documentation states:
+
+"GNU GPL, like the Avisynth plugin."
+
+This placeholder file is included so Python wheel metadata can ship a license
+file. The exact GPL version should be confirmed from the original upstream
+project before publishing to PyPI.

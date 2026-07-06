@@ -1,8 +1,9 @@
 project('SmoothUV', 'cpp',
         version: '1',
         default_options: ['cpp_std=c++11', 'buildtype=release'],
-        meson_version: '>=0.46')
+        meson_version: '>=0.49')
 
+plugin_name = 'smoothuv'
 
 warnings = [
   '-Wall',
@@ -10,9 +11,7 @@ warnings = [
   '-Wshadow',
 ]
 
-cflags = [
-  warnings,
-]
+cflags = warnings
 
 ldflags = [
 ]
@@ -36,9 +35,13 @@ if host_system == 'windows' or host_system == 'cygwin'
   endif
 endif
 
-
 cxx = meson.get_compiler('cpp')
+gcc_syntax = cxx.get_argument_syntax() == 'gcc'
 
+if not gcc_syntax
+  cflags = []
+  ldflags = []
+endif
 
 sources = [
   'src/SmoothUV.cpp',
@@ -49,9 +52,10 @@ deps = [
   cxx.find_library('m', required: false),
 ]
 
-shared_module('smoothuv',
+shared_module(plugin_name,
               sources,
               dependencies: deps,
               link_args: ldflags,
               cpp_args: cflags,
+              name_prefix: '',
               install: true)

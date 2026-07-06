@@ -4,6 +4,12 @@ avisynth plugin
 *.lo
 *.so
 *.dll
+.ci-support/
+_deps/
+__pycache__/
+tools/__pycache__/
+build-*/
+dist/
 .libs
 Makefile
 Makefile.in
