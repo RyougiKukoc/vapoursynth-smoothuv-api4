@@ -118,7 +118,7 @@ jobs:
         run: |
           $tag = $env:GITHUB_REF_NAME
           $assets = Get-ChildItem dist\release-assets\* | Select-Object -ExpandProperty FullName
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          & cmd.exe /d /c "gh release view $tag --repo $env:GITHUB_REPOSITORY >NUL 2>NUL"
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $assets --clobber --repo $env:GITHUB_REPOSITORY
           } else {
