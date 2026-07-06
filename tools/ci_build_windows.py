@@ -28,6 +28,60 @@ def find_command(*candidates: str) -> str | None:
     return None
 
 
+def prepend_path_entries(env: dict[str, str], entries: list[Path]) -> None:
+    parts = [str(entry) for entry in entries if entry.exists()]
+    if not parts:
+        return
+    existing = env.get("PATH")
+    if existing:
+        env["PATH"] = os.pathsep.join(parts + [existing])
+    else:
+        env["PATH"] = os.pathsep.join(parts)
+
+
+def configure_windows_build_env(env: dict[str, str]) -> dict[str, str]:
+    if os.name != "nt":
+        return env
+
+    msystem_prefix = env.get("MSYSTEM_PREFIX")
+    path_entries: list[Path] = []
+
+    vs_wheel_dir = ROOT / "_deps" / "vapoursynth-wheel-R77"
+    if vs_wheel_dir.exists():
+        path_entries.append(vs_wheel_dir)
+
+    if msystem_prefix:
+        prefix_path = Path(msystem_prefix)
+        path_entries.append(prefix_path / "bin")
+        path_entries.append(prefix_path.parent / "usr" / "bin")
+    else:
+        path_entries.extend(
+            [
+                Path(r"C:\msys64\ucrt64\bin"),
+                Path(r"C:\msys64\usr\bin"),
+            ]
+        )
+
+    prepend_path_entries(env, path_entries)
+
+    if "PKG_CONFIG" not in env:
+        pkg_config_shim = vs_wheel_dir / "pkg-config.cmd"
+        if pkg_config_shim.exists():
+            env["PKG_CONFIG"] = str(pkg_config_shim)
+    if "PKG_CONFIG_PATH" not in env:
+        pkg_config_path = vs_wheel_dir / "vapoursynth" / "lib" / "pkgconfig"
+        if pkg_config_path.exists():
+            env["PKG_CONFIG_PATH"] = str(pkg_config_path)
+
+    path_value = env.get("PATH")
+    if "CC" not in env and shutil.which("gcc", path=path_value):
+        env["CC"] = "gcc"
+    if "CXX" not in env and shutil.which("g++", path=path_value):
+        env["CXX"] = "g++"
+
+    return env
+
+
 def meson_command(meson_python: str | None, meson_exe: str | None) -> list[str]:
     if meson_exe:
         return [meson_exe]
@@ -109,7 +163,7 @@ def main(argv: list[str]) -> int:
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     meson = meson_command(args.meson_python, args.meson_exe)
-    env = os.environ.copy()
+    env = configure_windows_build_env(os.environ.copy())
     run(meson + ["setup", str(build_dir), "--wipe"], env=env)
     run(meson + ["compile", "-C", str(build_dir)], env=env)
 

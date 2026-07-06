@@ -51,11 +51,13 @@ jobs:
           python tools/ci_prepare_vs_wheel.py
 
       - name: Build package
-        env:
-          PATH: ${{ github.workspace }}\_deps\vapoursynth-wheel-R77;C:\msys64\ucrt64\bin;C:\msys64\usr\bin;${{ env.PATH }}
-          PKG_CONFIG_PATH: ${{ github.workspace }}\_deps\vapoursynth-wheel-R77\vapoursynth\lib\pkgconfig
-          SMOOTHUV_FORCE_BUILD: '1'
         run: |
+          $env:PATH = "$env:GITHUB_WORKSPACE\_deps\vapoursynth-wheel-R77;C:\msys64\ucrt64\bin;C:\msys64\usr\bin;$env:PATH"
+          $env:PKG_CONFIG_PATH = "$env:GITHUB_WORKSPACE\_deps\vapoursynth-wheel-R77\vapoursynth\lib\pkgconfig"
+          $env:PKG_CONFIG = 'pkg-config'
+          $env:SMOOTHUV_FORCE_BUILD = '1'
+          $env:CC = 'gcc'
+          $env:CXX = 'g++'
           python tools/ci_build_windows.py --clean --wheel
 
       - name: Smoke test package directory

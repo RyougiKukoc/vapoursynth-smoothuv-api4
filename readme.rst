@@ -121,6 +121,21 @@ Repository helper scripts:
     python tools/ci_build_windows.py --clean
     python tools/ci_smoke_package.py
 
+``ci_prepare_vs_wheel.py`` writes a normalized ``vapoursynth.pc`` tree under
+``_deps/vapoursynth-wheel-R77/``. The Windows build helper and wheel hook will
+reuse that location automatically for ``PKG_CONFIG`` and ``PKG_CONFIG_PATH``
+when it is present.
+
+When invoking Meson from PowerShell or ``cmd.exe`` on Windows, keep the active
+MSYS2 UCRT64 toolchain ahead of the system toolchain. If Meson still tries
+``cl``, force GCC explicitly:
+
+::
+
+    $env:CC = 'gcc'
+    $env:CXX = 'g++'
+    python tools/ci_build_windows.py --clean
+
 If the active Python does not have ``mesonbuild`` installed, point the build
 helper at another Python that does:
 
@@ -215,6 +230,11 @@ If that release asset exists, pip still builds a wheel locally, but it reuses
 the downloaded prebuilt plugin package instead of compiling ``smoothuv.dll``.
 If the release asset is missing or unreachable, the hook falls back to the
 normal local Meson build.
+
+On Windows, that local fallback expects an MSYS2 UCRT64 GCC toolchain and
+``pkg-config`` metadata to be available. The build helpers and wheel hook try to
+prefer ``gcc/g++`` automatically when an MSYS2 installation is discoverable, but
+``CC=gcc`` and ``CXX=g++`` remain valid manual overrides.
 
 Install strategy controls
 -------------------------
