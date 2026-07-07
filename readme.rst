@@ -31,7 +31,7 @@ For Windows x86_64, the recommended install path is:
 This is the preferred user-facing install strategy for this repository.
 During installation, the build hook first tries to download the matching
 prebuilt Release asset ``smoothuv-msys2-ucrt64.zip`` for the current package
-version tag such as ``v1.0``. If that asset exists, pip reuses the tested
+version tag such as ``v3``. If that asset exists, pip reuses the tested
 binary package instead of compiling ``smoothuv.dll`` locally.
 
 Installed result:
@@ -52,7 +52,7 @@ from the GitHub Release:
 
 ::
 
-    pip install https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v1.0/vapoursynth_smoothuv-1.0-py3-none-win_amd64.whl
+    pip install https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v3/vapoursynth_smoothuv-3-py3-none-win_amd64.whl
 
 This installs the same Python helper and plugin files, but skips the VCS build
 step entirely.
@@ -67,7 +67,7 @@ The VCS/source install path can be overridden with environment variables:
 - ``SMOOTHUV_PREBUILT_URL=...``
   Use an explicit prebuilt archive path or URL. This is strict: if it fails,
   the build fails instead of silently falling back.
-- ``SMOOTHUV_PREBUILT_TAG=v1.0``
+- ``SMOOTHUV_PREBUILT_TAG=v3``
   Override the default Release tag used to construct the GitHub asset URL.
 - ``SMOOTHUV_PREBUILT_REPOSITORY=owner/repo``
   Override the default GitHub repository slug used for Release asset lookup.
@@ -85,7 +85,7 @@ Point at a specific prebuilt archive in PowerShell:
 
 ::
 
-    $env:SMOOTHUV_PREBUILT_URL = 'https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v1.0/smoothuv-msys2-ucrt64.zip'
+    $env:SMOOTHUV_PREBUILT_URL = 'https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v3/smoothuv-msys2-ucrt64.zip'
     pip install "vapoursynth-smoothuv @ git+https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4.git"
 
 If the VCS install falls back to local compilation, it expects a working

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vapoursynth-smoothuv"
-version = "1.0"
+version = "3"
 description = "SmoothUV VapourSynth plugin and RainbowSmooth helper script"
 readme = "readme.rst"
 license = { text = "GNU GPL (exact upstream version should be confirmed before publication)" }

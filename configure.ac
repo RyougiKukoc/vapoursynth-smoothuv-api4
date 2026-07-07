@@ -1,4 +1,4 @@
-AC_INIT([SmoothUV], [1], [https://github.com/dubhater/vapoursynth-smoothuv/issues], [SmoothUV], [https://github.com/dubhater/vapoursynth-smoothuv])
+AC_INIT([SmoothUV], [3], [https://github.com/dubhater/vapoursynth-smoothuv/issues], [SmoothUV], [https://github.com/dubhater/vapoursynth-smoothuv])
 
 : ${CFLAGS=""}
 : ${CXXFLAGS=""}
