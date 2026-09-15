@@ -49,8 +49,12 @@ def _configure_build_env(env: dict[str, str]) -> dict[str, str]:
         except ImportError:
             return env
         pkgconfig_dir = Path(vapoursynth.__file__).resolve().parent / "pkgconfig"
-        if pkgconfig_dir.is_dir() and "PKG_CONFIG_PATH" not in env:
-            env["PKG_CONFIG_PATH"] = str(pkgconfig_dir)
+        if pkgconfig_dir.is_dir():
+            pkgconfig_path = str(pkgconfig_dir)
+            existing = env.get("PKG_CONFIG_PATH")
+            entries = existing.split(os.pathsep) if existing else []
+            if pkgconfig_path not in entries:
+                env["PKG_CONFIG_PATH"] = os.pathsep.join([pkgconfig_path, *entries])
         return env
 
     msystem_prefix = env.get("MSYSTEM_PREFIX")

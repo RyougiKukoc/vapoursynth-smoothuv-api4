@@ -101,7 +101,8 @@ On Linux x86_64, the hook chooses ``smoothuv-linux-x86_64.zip`` first. Set
 Meson fallback. Install a C++ compiler and ``pkg-config``; the installed
 VapourSynth R79 wheel is installed into pip's isolated build environment as a
 build SDK, supplying API4 headers and pkg-config metadata automatically when
-``PKG_CONFIG_PATH`` was not already set:
+``PKG_CONFIG_PATH`` was already set. Existing path entries are preserved after
+the SDK metadata directory:
 
 ::
 
