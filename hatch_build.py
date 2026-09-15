@@ -19,7 +19,8 @@ from packaging import tags
 ROOT = Path(__file__).resolve().parent
 PLUGIN_NAME = "smoothuv"
 DEFAULT_REPOSITORY = "RyougiKukoc/vapoursynth-smoothuv-api4"
-DEFAULT_PREBUILT_ASSET = "smoothuv-msys2-ucrt64.zip"
+WINDOWS_PREBUILT_ASSET = "smoothuv-msys2-ucrt64.zip"
+LINUX_PREBUILT_ASSET = "smoothuv-linux-x86_64.zip"
 
 
 def _find_command(*candidates: str) -> str | None:
@@ -41,8 +42,15 @@ def _prepend_path_entries(env: dict[str, str], entries: list[Path]) -> None:
         env["PATH"] = os.pathsep.join(parts)
 
 
-def _configure_windows_build_env(env: dict[str, str]) -> dict[str, str]:
+def _configure_build_env(env: dict[str, str]) -> dict[str, str]:
     if sys.platform != "win32":
+        try:
+            import vapoursynth
+        except ImportError:
+            return env
+        pkgconfig_dir = Path(vapoursynth.__file__).resolve().parent / "pkgconfig"
+        if pkgconfig_dir.is_dir() and "PKG_CONFIG_PATH" not in env:
+            env["PKG_CONFIG_PATH"] = str(pkgconfig_dir)
         return env
 
     msystem_prefix = env.get("MSYSTEM_PREFIX")
@@ -109,8 +117,14 @@ def _truthy(value: str | None) -> bool:
 def _default_prebuilt_url(version: str) -> str:
     repository = os.environ.get("SMOOTHUV_PREBUILT_REPOSITORY") or os.environ.get("GITHUB_REPOSITORY") or DEFAULT_REPOSITORY
     tag = os.environ.get("SMOOTHUV_PREBUILT_TAG") or f"v{version}"
-    asset = os.environ.get("SMOOTHUV_PREBUILT_ASSET_NAME") or DEFAULT_PREBUILT_ASSET
+    asset = os.environ.get("SMOOTHUV_PREBUILT_ASSET_NAME") or _default_prebuilt_asset()
     return f"https://github.com/{repository}/releases/download/{tag}/{asset}"
+
+
+def _default_prebuilt_asset() -> str:
+    if sys.platform == "linux" and platform.machine().lower() in {"amd64", "x86_64"}:
+        return LINUX_PREBUILT_ASSET
+    return WINDOWS_PREBUILT_ASSET
 
 
 def _project_version() -> str:
@@ -134,7 +148,23 @@ def _prebuilt_source(version: str) -> tuple[str, bool]:
 
 
 def _supports_prebuilt() -> bool:
-    return sys.platform == "win32" and platform.machine().lower() in {"amd64", "x86_64"}
+    return sys.platform in {"win32", "linux"} and platform.machine().lower() in {"amd64", "x86_64"}
+
+
+def _plugin_filename() -> str:
+    if sys.platform == "win32":
+        return f"{PLUGIN_NAME}.dll"
+    if sys.platform == "darwin":
+        return f"{PLUGIN_NAME}.dylib"
+    return f"{PLUGIN_NAME}.so"
+
+
+def _write_manifest(target_dir: Path) -> None:
+    (target_dir / "manifest.vs").write_text(
+        "[VapourSynth Manifest V1]\n"
+        f"{PLUGIN_NAME}\n",
+        encoding="utf-8",
+    )
 
 
 def _fetch_prebuilt_archive(source: str, destination: Path) -> None:
@@ -153,20 +183,28 @@ def _stage_prebuilt_plugin(version: str, target_dir: Path) -> bool:
         print("SmoothUV wheel build: skipping prebuilt asset because SMOOTHUV_FORCE_BUILD is set")
         return False
     if not _supports_prebuilt():
-        print("SmoothUV wheel build: prebuilt release asset path only applies to Windows x86_64; falling back to local build")
+        print("SmoothUV wheel build: no matching Release asset for this platform; falling back to local build")
         return False
 
     source, explicit = _prebuilt_source(version)
-    asset_name = Path(source).name or DEFAULT_PREBUILT_ASSET
+    asset_name = Path(source).name or _default_prebuilt_asset()
     try:
         with tempfile.TemporaryDirectory(prefix="smoothuv-prebuilt-") as temp_dir_text:
             temp_dir = Path(temp_dir_text)
             archive_path = temp_dir / asset_name
             _fetch_prebuilt_archive(source, archive_path)
             with zipfile.ZipFile(archive_path) as zf:
-                package_members = [name for name in zf.namelist() if name.replace("\\", "/").startswith(f"{PLUGIN_NAME}/") and not name.endswith("/")]
+                package_members = [
+                    name
+                    for name in zf.namelist()
+                    if name.replace("\\", "/").startswith(f"{PLUGIN_NAME}/") and not name.endswith("/")
+                ]
                 if not package_members:
-                    package_members = [name for name in zf.namelist() if name.replace("\\", "/") in {f"{PLUGIN_NAME}.dll", "manifest.vs"}]
+                    package_members = [
+                        name
+                        for name in zf.namelist()
+                        if name.replace("\\", "/") in {_plugin_filename(), "manifest.vs"}
+                    ]
                 if not package_members:
                     raise FileNotFoundError(f"prebuilt archive does not contain a {PLUGIN_NAME}/ package directory")
 
@@ -179,16 +217,12 @@ def _stage_prebuilt_plugin(version: str, target_dir: Path) -> bool:
                     out_path.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(member) as src, out_path.open("wb") as dst:
                         shutil.copyfileobj(src, dst)
-            plugin_dll = target_dir / f"{PLUGIN_NAME}.dll"
-            if not plugin_dll.exists():
-                raise FileNotFoundError(f"prebuilt archive did not provide {PLUGIN_NAME}.dll")
+            plugin = target_dir / _plugin_filename()
+            if not plugin.exists():
+                raise FileNotFoundError(f"prebuilt archive did not provide {_plugin_filename()}")
             manifest = target_dir / "manifest.vs"
             if not manifest.exists():
-                manifest.write_text(
-                    "[VapourSynth Manifest V1]\n"
-                    f"{PLUGIN_NAME}\n",
-                    encoding="utf-8",
-                )
+                _write_manifest(target_dir)
     except Exception as exc:
         if explicit:
             raise RuntimeError(f"failed to use explicit SmoothUV prebuilt asset {source!r}") from exc
@@ -199,6 +233,15 @@ def _stage_prebuilt_plugin(version: str, target_dir: Path) -> bool:
     return True
 
 
+def _find_built_plugin(build_dir: Path) -> Path:
+    suffix = Path(_plugin_filename()).suffix
+    for stem in (PLUGIN_NAME, f"lib{PLUGIN_NAME}"):
+        candidate = build_dir / f"{stem}{suffix}"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"missing built plugin under {build_dir}")
+
+
 class CustomHook(BuildHookInterface[Any]):
     build_dir = ROOT / "build-wheel"
     dist_dir = ROOT / "vapoursynth" / "plugins" / PLUGIN_NAME
@@ -206,7 +249,8 @@ class CustomHook(BuildHookInterface[Any]):
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         del version
         build_data["pure_python"] = False
-        build_data["tag"] = f"py3-none-{next(tags.platform_tags())}"
+        platform_tag = os.environ.get("SMOOTHUV_PLATFORM_TAG") or str(next(tags.platform_tags()))
+        build_data["tag"] = f"py3-none-{platform_tag}"
         project_version = _project_version()
 
         shutil.rmtree(self.build_dir, ignore_errors=True)
@@ -214,21 +258,14 @@ class CustomHook(BuildHookInterface[Any]):
         self.dist_dir.mkdir(parents=True, exist_ok=True)
 
         if not _stage_prebuilt_plugin(project_version, self.dist_dir):
-            env = _configure_windows_build_env(os.environ.copy())
+            env = _configure_build_env(os.environ.copy())
             meson = _meson_command()
             _run(meson + ["setup", str(self.build_dir), "--wipe"], env=env)
             _run(meson + ["compile", "-C", str(self.build_dir)], env=env)
 
-            plugin_dll = self.build_dir / f"{PLUGIN_NAME}.dll"
-            if not plugin_dll.exists():
-                raise FileNotFoundError(f"missing built plugin: {plugin_dll}")
-
-            shutil.copy2(plugin_dll, self.dist_dir / plugin_dll.name)
-            (self.dist_dir / "manifest.vs").write_text(
-                "[VapourSynth Manifest V1]\n"
-                f"{PLUGIN_NAME}\n",
-                encoding="utf-8",
-            )
+            plugin = _find_built_plugin(self.build_dir)
+            shutil.copy2(plugin, self.dist_dir / f"{PLUGIN_NAME}{plugin.suffix}")
+            _write_manifest(self.dist_dir)
 
     def finalize(self, version: str, build_data: dict[str, Any], artifact_path: str) -> None:
         del version, build_data, artifact_path

@@ -3,10 +3,10 @@ SmoothUV
 
 SmoothUV is a spatial derainbow filter. The luma is returned unchanged.
 
-This repository now targets modern VapourSynth API4 packaging on Windows while
-preserving the original filter behavior. It ships both:
+This repository targets modern VapourSynth API4 packaging on Windows and Linux
+x86_64 while preserving the original filter behavior. It ships both:
 
-- the native plugin ``smoothuv.dll``
+- the native plugin (``smoothuv.dll`` on Windows or ``smoothuv.so`` on Linux)
 - the Python helper module ``RainbowSmooth.py``
 
 Currently only x86 systems are supported.
@@ -22,7 +22,7 @@ Installation
 Recommended install from the GitHub repository
 ----------------------------------------------
 
-For Windows x86_64, the recommended install path is:
+For Windows or Linux x86_64, the recommended install path is:
 
 ::
 
@@ -30,15 +30,16 @@ For Windows x86_64, the recommended install path is:
 
 This is the preferred user-facing install strategy for this repository.
 During installation, the build hook first tries to download the matching
-prebuilt Release asset ``smoothuv-msys2-ucrt64.zip`` for the current package
-version tag such as ``v3``. If that asset exists, pip reuses the tested
-binary package instead of compiling ``smoothuv.dll`` locally.
+prebuilt Release asset for the current package version tag, such as ``v3.1``:
+``smoothuv-msys2-ucrt64.zip`` on Windows x86_64 or
+``smoothuv-linux-x86_64.zip`` on Linux x86_64. If that asset exists, pip
+reuses the tested binary package instead of compiling locally.
 
 Installed result:
 
 - ``RainbowSmooth.py`` is placed in ``site-packages`` for
   ``import RainbowSmooth``
-- ``smoothuv.dll`` and ``manifest.vs`` are placed under
+- ``smoothuv.dll`` or ``smoothuv.so`` and ``manifest.vs`` are placed under
   ``site-packages/vapoursynth/plugins/smoothuv/`` for VapourSynth R77 autoload
 
 This avoids the normal "download DLL and copy it into the plugin directory"
@@ -52,7 +53,14 @@ from the GitHub Release:
 
 ::
 
-    pip install https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v3/vapoursynth_smoothuv-3-py3-none-win_amd64.whl
+    pip install https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v3.1/vapoursynth_smoothuv-3.1-py3-none-win_amd64.whl
+
+The Linux R79-compatible wheel is also published with the
+``manylinux_2_27_x86_64`` tag:
+
+::
+
+    pip install https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v3.1/vapoursynth_smoothuv-3.1-py3-none-manylinux_2_27_x86_64.whl
 
 This installs the same Python helper and plugin files, but skips the VCS build
 step entirely.
@@ -67,11 +75,11 @@ The VCS/source install path can be overridden with environment variables:
 - ``SMOOTHUV_PREBUILT_URL=...``
   Use an explicit prebuilt archive path or URL. This is strict: if it fails,
   the build fails instead of silently falling back.
-- ``SMOOTHUV_PREBUILT_TAG=v3``
+- ``SMOOTHUV_PREBUILT_TAG=v3.1``
   Override the default Release tag used to construct the GitHub asset URL.
 - ``SMOOTHUV_PREBUILT_REPOSITORY=owner/repo``
   Override the default GitHub repository slug used for Release asset lookup.
-- ``SMOOTHUV_PREBUILT_ASSET_NAME=smoothuv-msys2-ucrt64.zip``
+- ``SMOOTHUV_PREBUILT_ASSET_NAME=...``
   Override the expected Release asset filename.
 
 Force a local source build in PowerShell:
@@ -85,11 +93,26 @@ Point at a specific prebuilt archive in PowerShell:
 
 ::
 
-    $env:SMOOTHUV_PREBUILT_URL = 'https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v3/smoothuv-msys2-ucrt64.zip'
+    $env:SMOOTHUV_PREBUILT_URL = 'https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4/releases/download/v3.1/smoothuv-msys2-ucrt64.zip'
     pip install "vapoursynth-smoothuv @ git+https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4.git"
 
-If the VCS install falls back to local compilation, it expects a working
-Windows build environment as described below.
+On Linux x86_64, the hook chooses ``smoothuv-linux-x86_64.zip`` first. Set
+``SMOOTHUV_FORCE_BUILD=1`` or use an unsupported platform to invoke the native
+Meson fallback. Install a C++ compiler and ``pkg-config``; the installed
+VapourSynth pip wheel supplies API4 headers and pkg-config metadata
+automatically when ``PKG_CONFIG_PATH`` was not already set:
+
+::
+
+    sudo apt-get install build-essential pkg-config
+    SMOOTHUV_FORCE_BUILD=1 pip install "vapoursynth-smoothuv @ git+https://github.com/RyougiKukoc/vapoursynth-smoothuv-api4.git"
+
+On macOS and non-x86_64 Linux, no Release payload is selected; the same native
+fallback applies. A compatible VapourSynth SDK/runtime and toolchain are
+required on every fallback platform.
+
+On Windows, a VCS install that falls back to local compilation expects the
+build environment described below.
 
 
 Usage
@@ -249,25 +272,29 @@ Or:
     make
 
 Meson runs faster than autogen.sh and configure. These generic commands are
-useful for manual development, but the Windows Release flow for this fork is
-based on the helper scripts above.
+useful for manual development; the release flow uses the helper scripts above.
 
 
 Release workflow
 ================
 
-The Windows GitHub Actions workflow produces three related outputs:
+The GitHub Actions workflow produces Windows and Linux release artifacts:
 
 - a package directory artifact under ``dist/msys2-ucrt64/smoothuv/``
-- a wheel under ``dist/wheels/``
-- Release-ready assets under ``dist/release-assets/``
+- a Windows wheel under ``dist/wheels/``
+- a Linux package directory under ``dist/linux-x86_64/smoothuv/`` and a
+  ``manylinux_2_27_x86_64`` wheel
+- Release-ready assets under ``dist/release-assets/`` and
+  ``dist/release-assets-linux/``
 
-On ``v*`` tag pushes, the workflow creates or updates the matching GitHub
-Release and uploads the contents of ``dist/release-assets/``. That directory
-currently contains:
+On ``v*`` tag pushes, one publish job waits for the Windows and Linux smoke
+jobs before creating or updating the matching GitHub Release. It uploads:
 
 - ``smoothuv-msys2-ucrt64.zip`` for the prebuilt VCS/source-install path
-- the built ``vapoursynth_smoothuv-*.whl`` wheel for direct pip installation
+- ``smoothuv-linux-x86_64.zip`` containing ``smoothuv/manifest.vs`` and
+  ``smoothuv/smoothuv.so`` for the Linux Release-backed VCS path
+- Windows and Linux ``vapoursynth_smoothuv-*.whl`` files for direct pip
+  installation
 
 
 License

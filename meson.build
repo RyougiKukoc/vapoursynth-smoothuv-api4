@@ -1,5 +1,5 @@
 project('SmoothUV', 'cpp',
-        version: '3',
+        version: '3.1',
         default_options: ['cpp_std=c++11', 'buildtype=release'],
         meson_version: '>=0.49')
 

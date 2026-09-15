@@ -1,18 +1,78 @@
 #!/usr/bin/env python3
-"""Smoke-load the packaged SmoothUV plugin and render a deterministic frame."""
+"""Explicitly load a packaged SmoothUV plugin and render deterministic frames."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_NAME = "smoothuv"
+
+
+def plugin_suffix() -> str:
+    if sys.platform == "win32":
+        return ".dll"
+    if sys.platform == "darwin":
+        return ".dylib"
+    return ".so"
+
+
+def frame_hash(frame: Any) -> str:
+    digest = hashlib.sha256()
+    for plane in range(frame.format.num_planes):
+        digest.update(bytes(frame[plane]))
+    return digest.hexdigest()
+
+
+class IsolatedEnvironmentPolicy:
+    """Provide one VapourSynth environment with plugin autoloading disabled."""
+
+    def __init__(self, flags: int) -> None:
+        self._api: Any = None
+        self._environment: Any = None
+        self._flags = flags
+
+    def on_policy_registered(self, api: Any) -> None:
+        self._api = api
+        self._environment = api.create_environment(self._flags)
+
+    def on_policy_cleared(self) -> None:
+        self._api = None
+        self._environment = None
+
+    def get_current_environment(self) -> Any:
+        return self._environment
+
+    def set_environment(self, environment: Any) -> Any:
+        previous = self._environment
+        if environment is not None:
+            self._environment = environment
+        return previous
+
+    def is_alive(self, environment: Any) -> bool:
+        return environment is self._environment
+
+    def close(self) -> None:
+        if self._api is not None and self._environment is not None:
+            self._api.destroy_environment(self._environment)
+            self._environment = None
+
+
+def install_isolated_policy(vs_module: Any) -> IsolatedEnvironmentPolicy | None:
+    if not hasattr(vs_module, "register_policy") or vs_module.has_policy():
+        return None
+    policy = IsolatedEnvironmentPolicy(int(vs_module.DISABLE_AUTO_LOADING))
+    vs_module.register_policy(policy)
+    return policy
 
 
 def resolve_artifact_dir(artifact_dir_arg: str | None, artifact_zip_arg: str | None) -> tuple[Path, Path | None]:
@@ -23,8 +83,7 @@ def resolve_artifact_dir(artifact_dir_arg: str | None, artifact_zip_arg: str | N
         temp_dir = Path(tempfile.mkdtemp(prefix="smoothuv-package-"))
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(temp_dir)
-        extracted_root = temp_dir
-        candidates = [path for path in extracted_root.iterdir() if path.is_dir()]
+        candidates = [path for path in temp_dir.iterdir() if path.is_dir()]
         if len(candidates) != 1:
             raise RuntimeError(f"expected one top-level package directory in {archive}, found {len(candidates)}")
         return candidates[0], temp_dir
@@ -40,8 +99,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--json", action="store_true", help="Emit JSON result.")
     args = parser.parse_args(argv)
 
-    artifact_dir, temp_dir = resolve_artifact_dir(args.artifact_dir, args.artifact_zip)
-    plugin = artifact_dir / "smoothuv.dll"
+    artifact_dir, _temp_dir = resolve_artifact_dir(args.artifact_dir, args.artifact_zip)
+    plugin = artifact_dir / f"{PLUGIN_NAME}{plugin_suffix()}"
     manifest = artifact_dir / "manifest.vs"
     if not plugin.exists():
         raise FileNotFoundError(f"missing plugin: {plugin}")
@@ -55,31 +114,40 @@ def main(argv: list[str]) -> int:
 
     import vapoursynth as vs  # pylint: disable=import-outside-toplevel
 
-    core = vs.core
+    policy = install_isolated_policy(vs)
     try:
-        env = vs.create_environment(flags=vs.DISABLE_AUTO_LOADING)
-        core = env.get_core()
-    except AttributeError:
-        pass
+        core = vs.core
+        core.std.LoadPlugin(str(plugin))
+        src = core.std.BlankClip(width=64, height=48, format=vs.YUV420P8, length=12, color=[96, 128, 128])
+        out = core.smoothuv.SmoothUV(src, radius=3, threshold=270)
+        frames = {number: out.get_frame(number) for number in (0, 3, 11)}
+        frame = frames[3]
+        stats = dict(core.std.PlaneStats(out).get_frame(3).props)
+        hashes = {number: frame_hash(value) for number, value in frames.items()}
+        if len(set(hashes.values())) != 1:
+            raise RuntimeError(f"static SmoothUV input produced inconsistent frame hashes: {hashes}")
 
-    core.std.LoadPlugin(str(plugin))
-    out = core.smoothuv.SmoothUV(
-        core.std.BlankClip(width=64, height=32, format=vs.YUV420P8, length=1, color=[128, 128, 128])
-    )
-    frame = out.get_frame(0)
-    stats = dict(core.std.PlaneStats(out).get_frame(0).props)
-    result = {
-        "plugin": str(plugin),
-        "manifest": str(manifest),
-        "width": frame.width,
-        "height": frame.height,
-        "format": frame.format.name,
-        "plane_stats_average": float(stats["PlaneStatsAverage"]),
-        "plane_stats_min": float(stats["PlaneStatsMin"]),
-        "plane_stats_max": float(stats["PlaneStatsMax"]),
-    }
+        invalid_input_rejected = False
+        try:
+            core.smoothuv.SmoothUV(core.std.BlankClip(width=64, height=48, format=vs.RGB24, length=1))
+        except vs.Error:
+            invalid_input_rejected = True
+        if not invalid_input_rejected:
+            raise RuntimeError("SmoothUV accepted unsupported RGB input")
 
-    try:
+        result = {
+            "plugin": str(plugin),
+            "manifest": str(manifest),
+            "width": frame.width,
+            "height": frame.height,
+            "format": frame.format.name,
+            "frames": out.num_frames,
+            "frame_hashes": hashes,
+            "invalid_input_rejected": invalid_input_rejected,
+            "plane_stats_average": float(stats["PlaneStatsAverage"]),
+            "plane_stats_min": float(stats["PlaneStatsMin"]),
+            "plane_stats_max": float(stats["PlaneStatsMax"]),
+        }
         if args.json:
             print(json.dumps(result, indent=2, sort_keys=True))
         else:
@@ -89,6 +157,8 @@ def main(argv: list[str]) -> int:
     finally:
         for handle in dll_handles:
             handle.close()
+        if policy is not None:
+            policy.close()
 
 
 if __name__ == "__main__":
