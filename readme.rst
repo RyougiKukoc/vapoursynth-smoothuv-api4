@@ -99,8 +99,9 @@ Point at a specific prebuilt archive in PowerShell:
 On Linux x86_64, the hook chooses ``smoothuv-linux-x86_64.zip`` first. Set
 ``SMOOTHUV_FORCE_BUILD=1`` or use an unsupported platform to invoke the native
 Meson fallback. Install a C++ compiler and ``pkg-config``; the installed
-VapourSynth pip wheel supplies API4 headers and pkg-config metadata
-automatically when ``PKG_CONFIG_PATH`` was not already set:
+VapourSynth R79 wheel is installed into pip's isolated build environment as a
+build SDK, supplying API4 headers and pkg-config metadata automatically when
+``PKG_CONFIG_PATH`` was not already set:
 
 ::
 
@@ -109,7 +110,9 @@ automatically when ``PKG_CONFIG_PATH`` was not already set:
 
 On macOS and non-x86_64 Linux, no Release payload is selected; the same native
 fallback applies. A compatible VapourSynth SDK/runtime and toolchain are
-required on every fallback platform.
+required on every fallback platform. Do not disable pip build isolation for a
+normal source install; the build dependency above provides the R79 SDK inside
+that isolated environment.
 
 On Windows, a VCS install that falls back to local compilation expects the
 build environment described below.

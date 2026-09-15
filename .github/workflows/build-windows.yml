@@ -181,6 +181,17 @@ jobs:
           python -m pip install --force-reinstall --no-deps -v .
           python tools/ci_smoke_installed_wheel.py
 
+      - name: Smoke isolated named VCS force build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip uninstall -y vapoursynth-smoothuv
+          export SMOOTHUV_PREBUILT_URL="$GITHUB_WORKSPACE/dist/release-assets-linux/smoothuv-linux-x86_64.zip"
+          export SMOOTHUV_FORCE_BUILD=1
+          python -m pip install --force-reinstall --no-deps -v \
+            "vapoursynth-smoothuv @ git+https://github.com/${GITHUB_REPOSITORY}.git@${GITHUB_SHA}"
+          python tools/ci_smoke_installed_wheel.py
+
   publish-release:
     name: Publish release assets
     if: startsWith(github.ref, 'refs/tags/v')
