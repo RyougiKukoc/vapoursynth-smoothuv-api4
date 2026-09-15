@@ -123,7 +123,7 @@ jobs:
               export PKG_CONFIG_PATH="/workspace/_deps/vapoursynth-wheel/extracted/vapoursynth/pkgconfig"
               export SMOOTHUV_FORCE_BUILD=1
               export SMOOTHUV_PLATFORM_TAG=manylinux_2_27_x86_64
-              "$py" -m build --wheel --no-isolation --outdir dist/wheels-linux
+              "$py" -m build --wheel --no-isolation --skip-dependency-check --outdir dist/wheels-linux
               wheel=$(find dist/wheels-linux -name "*.whl" -print -quit)
               test -n "$wheel"
               unzip -q "$wheel" "vapoursynth/plugins/smoothuv/*" -d dist/linux-x86_64/extracted
